@@ -12,7 +12,7 @@ def extract_from_excel(file_path):
         df = pd.read_excel(file_path)
         # drop the rows that are completely empty 
         df = df.dropna(how='all')
-        # Convert to a ist of dictionaries (eacg row beacomes one record)
+        # Convert to a ist of dictionaries (each row beacomes one record)
         records = df.to_dict(orient="records")
         return json.dumps(records, ensure_ascii=False, indent=2)
     except Exception as e:
