@@ -2,6 +2,7 @@ import pandas as pd
 from docx import Document
 from pptx import Presentation
 import json
+import pdfplumber
 
 # main function: parse 3 types of file
 
@@ -43,12 +44,39 @@ def extract_from_ppt(file_path):
             for shape in slide.shapes:
                 if hasattr(shape, "text") and shape.text.strip():
                     text_runs.append(shape.text.strip())
+                    
+                elif shape.has_table:
+                    text_runs.append("  [tabular data detected]:")
+                    for row in shape.table.rows:
+                        row_data = [cell.text_frame.text.replace('\n', ' ').strip() for cell in row.cells]
+                        text_runs.append("  | " + " | ".join(row_data) + " |")
             
-            return "\n".join(text_runs)
+        return "\n".join(text_runs)
         
     except Exception as e:
         return f"PPT parsing failed: {e}"
 
+'''
+# extract pdf text page by page
+def extract_from_pdf(file_path):
+    try:
+        full_text = []
+
+        # open pdf file
+        with pdfplumber.open(file_path) as pdf:
+            for page_num, page in enumerate(pdf.pages):
+                full_text.append(f"\n --- Page {page_num + 1} ---")
+
+                text = page.extract_text()
+
+                if text:
+                    full_text.append(text)
+
+        return "\n".join(full_text)
+    
+    except Exception as e:
+        return f"PDF parsing failed: {e}"
+'''
 
 # Testing
 if __name__ == "__main__":
@@ -56,10 +84,13 @@ if __name__ == "__main__":
     excel_data = extract_from_excel(r"C:\Users\YIXIN\Downloads\Lampiran A2 Senarai pelajar FAIX.xlsx")
     print(excel_data)
 
-    print("--- Testing Word Extraction ---")
+    print("\n--- Testing Word Extraction ---")
     word_text = extract_from_word(r"C:\Users\YIXIN\Downloads\EPI-script.docx")
     print(word_text)
 
-    print("--- Testing PPT Extraction ---")
+    print("\n--- Testing PPT Extraction ---")
     ppt_text = extract_from_ppt(r"C:\Users\YIXIN\Downloads\Chapter 6_Estimation_v4_sakinah.pptx")
     print(ppt_text)
+
+    #print("\n--- Testing PDF Extraction ---")
+    #pdf_text = extract_from_pdf(r"C:\Users\YIXIN\Downloads\4. KBS Life Cycle SEM120252026.pdf")
