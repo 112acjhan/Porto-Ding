@@ -1,0 +1,51 @@
+name: Backend CI
+
+on:
+  push:
+    branches: [ "main" ]
+  # Only trigger if changes are made inside the backend folder
+    paths:
+      - 'backend/**'
+      - 'docs/requirements.txt'
+      - '.github/workflows/backend-ci.yml'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - 'backend/**'
+      - 'docs/requirements.txt'
+      - '.github/workflows/backend-ci.yml'
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest  # Standard for FastAPI/Python
+    defaults:
+      run:
+        working-directory: ./backend # Matches our new folder structure
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.13'
+
+      # Caching for Ubuntu (Note the path change from your Windows version)
+      - name: Cache Pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('backend/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r ../docs/requirements.txt
+
+      # Addition: Basic Syntax Check (The system should at least be able to run)
+      - name: Basic Syntax Check
+        run: |
+          python -m py_compile main.py
