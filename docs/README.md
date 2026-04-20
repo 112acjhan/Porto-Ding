@@ -25,6 +25,7 @@ SME-Ops-Orchestrator/
 │   │   ├── services/            # Framework-independent business logic
 │   │   │   ├── parser.py        # OCR + GLM Master JSON Extraction
 │   │   │   ├── rag_service.py   # Vector DB (Chroma/Pinecone) logic
+│   │   │   ├── vector_db.py     # qdrantdb
 │   │   │   └── google_sheets.py # Google Sheets API integration
 │   │   │
 │   │   ├── models/              # Database & Pydantic Schemas
