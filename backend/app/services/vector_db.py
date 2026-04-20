@@ -25,8 +25,6 @@ class VectorDBService:
     def create_sme_orchestrator_collection(self, collection_name: str):
         self.client.create_collection(
             collection_name=collection_name,
-
-            # 1. Hybrid Search Setup
             vectors_config={
                 "dense": models.VectorParams(
                     size=1536,
@@ -39,52 +37,46 @@ class VectorDBService:
                     index=models.SparseIndexParams(on_disk=True)
                 )
             },
-            # 2. Performance Tuning
-            hnsw_config=models.HnswConfigDiff(
-                m=16,
-                ef_construct=100,
-                on_disk=True
-            ),
+            hnsw_config=models.HnswConfigDiff(m=16, ef_construct=100, on_disk=True),
             on_disk_payload=True
         )
 
-        # 3. Create Payload Indexes
-        self.client.create_payload_index(
-            collection_name=collection_name,
-            field_name="client",
-            field_schema=models.KeywordIndexParams(
-                type="keyword",
-                is_tenant=True 
-            )
-        )
-
-        # Fast filtering for status and intent
-        for field in ["status", "intent", "doc_id"]:
+        # 1. KEYWORD INDEXES
+        fields_to_index = [
+            "client", 
+            "status", 
+            "intent", 
+            "doc_id",
+            "authorized_roles",
+            "deadline"
+            ]
+        
+        for field in fields_to_index:
             self.client.create_payload_index(
-                collection_name, 
-                field, 
-                models.PayloadSchemaType.KEYWORD
+                collection_name=collection_name,
+                field_name=field,
+                field_schema=models.PayloadSchemaType.KEYWORD
             )
 
-        # Timestamp for sorting
+        # 2. INTEGER INDEX
         self.client.create_payload_index(
-            collection_name, 
-            "timestamp", 
-            models.PayloadSchemaType.INTEGER
+            collection_name=collection_name, 
+            field_name="timestamp", 
+            field_schema=models.PayloadSchemaType.INTEGER
         )
 
-        # Full-text search for the OCR extracted text
+        # 3. FULL-TEXT INDEX
         self.client.create_payload_index(
-            collection_name, 
-            "text_to_search", 
-            models.TextIndexParams(
+            collection_name=collection_name, 
+            field_name="text_to_search", 
+            field_schema=models.TextIndexParams(
                 type="text",
                 tokenizer=models.TokenizerType.WORD,
                 lowercase=True
             )
         )
-        
-        print(f"SME Collection '{collection_name}' initialized.")
+
+        print(f"SME Collection '{collection_name}' initialized")
 
 
     def upsert_vectors(self, dense_vector: list, sparse_indices: list, sparse_values: list, qdrant_id: str, payload: dict):
@@ -117,7 +109,14 @@ class VectorDBService:
         )
 
 
-    def search_vectors(self, query_dense: list, query_sparse_indices: list, query_sparse_values: list, client_id: str, top_k: int = 5):
+    def search_vectors(self, query_dense: list, query_sparse_indices: list, query_sparse_values: list, client_id: str, user_role: str, top_k: int = 5):
+        role_filter = []
+        if user_role == "STAFF":
+            role_filter = [models.FieldCondition(
+                key="authorized_roles", 
+                match=models.MatchValue(value="STAFF")
+            )]
+        
         # Hybrid Search using query point
         return self.client.query_points(
             collection_name=self.collection_name,
@@ -139,13 +138,14 @@ class VectorDBService:
                 ),
             ],
             
-            # Logical Filter: Only search data belonging to this specific client
+            # Logical Filter: Only search data belonging to this specific client and role-based access
             query_filter=models.Filter(
-                must=[
-                    models.FieldCondition(
-                        key="client",
-                        match=models.MatchValue(value=client_id)
-                    )
+            must=[
+                models.FieldCondition(
+                    key="client", 
+                    match=models.MatchValue(value=client_id)
+                    ),
+                *role_filter # Unpack the role filter
                 ]
             ),
 
