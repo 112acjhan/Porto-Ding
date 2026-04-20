@@ -29,7 +29,7 @@ class VectorDBService:
             # 1. Hybrid Search Setup
             vectors_config={
                 "dense": models.VectorParams(
-                    size=1024,
+                    size=1536,
                     distance=models.Distance.COSINE,
                     on_disk=True
                 )
