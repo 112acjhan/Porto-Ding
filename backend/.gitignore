@@ -1,0 +1,15 @@
+.env
+temp_uploads/
+
+*.txt
+!requirements.txt
+!README.md
+
+**/downloaded_media/
+**/downloaded_media_tele/
+
+__pycache__/
+*.py[cod]
+
+venv/
+.venv/
