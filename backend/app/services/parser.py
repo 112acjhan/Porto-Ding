@@ -2,24 +2,26 @@ import pandas as pd
 from docx import Document
 from pptx import Presentation
 import json
+import os
+import pytesseract
+from pdf2image import convert_from_path
 import pdfplumber
 
 # main function: parse 3 types of file
-
 # converts tabular data into json or list of dictionary
 def extract_from_excel(file_path):
     try:
-        # asume the first row is the header
+        # assume the first row is the header
         df = pd.read_excel(file_path)
         # drop the rows that are completely empty 
         df = df.dropna(how='all')
-        # Convert to a ist of dictionaries (each row beacomes one record)
+        # Convert to a list of dictionaries (each row beacomes one record)
         records = df.to_dict(orient="records")
         return json.dumps(records, ensure_ascii=False, indent=2)
     except Exception as e:
         return f"Excel parsing failed: {e}"
 
-# extracts plain text paragrapg by paragraph
+# extracts plain text paragraph by paragraph
 def extract_from_word(file_path):
     try:
         doc = Document(file_path)
@@ -56,9 +58,9 @@ def extract_from_ppt(file_path):
     except Exception as e:
         return f"PPT parsing failed: {e}"
 
-'''
+
 # extract pdf text page by page
-def extract_from_pdf(file_path):
+def extract_text_pdf(file_path):
     try:
         full_text = []
 
@@ -71,14 +73,66 @@ def extract_from_pdf(file_path):
 
                 if text:
                     full_text.append(text)
-
         return "\n".join(full_text)
     
     except Exception as e:
         return f"PDF parsing failed: {e}"
-'''
 
-# Testing
+# change the tesseract.exe path
+pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+# change the poppler bin path
+poppler_bin_path = r'C:\Users\YIXIN\Downloads\Release-25.12.0-0\poppler-25.12.0\Library\bin'
+
+def extract_with_local_ocr(file_path):
+    try:
+        # convert pdf into picture
+        images =convert_from_path(file_path, dpi=300, poppler_path=poppler_bin_path)
+
+        full_text = []
+
+        for i,image in enumerate(images):
+            print (f"[OCR] detecting page {i + 1}")
+            text = pytesseract.image_to_string(image, lang = 'eng')
+
+            if text.strip():
+                full_text.append(f"\n --- Page {i + 1}---")
+                full_text.append(text)
+
+        print("[OCR] parsing completed")
+        return "\n".join(full_text)
+            
+    except Exception as e:
+        return f"OCR PDF parsing failed: {e}"
+    
+# decides whether to use text extraction or OCR
+def extract_from_pdf(file_path):
+    try:
+        with pdfplumber.open(file_path) as pdf:
+            requires_ocr = False
+
+            if len(pdf.pages) == 0:
+                return "Error: Empty PDF."
+            
+            for page_num, page in enumerate(pdf.pages):
+                text = page.extract_text() or ""
+                images = page.images
+
+                # text only
+                if len (images) > 0:
+                    requires_ocr = True
+                    break
+                
+            if not requires_ocr:
+                return extract_text_pdf(file_path)
+            
+            else:
+                return extract_with_local_ocr(file_path)
+        
+    except Exception as e:
+        return f"PDF parsing failed: {e}"
+
+
+# Testing area
 if __name__ == "__main__":
     print("--- Testing Excel Extraction ---")
     excel_data = extract_from_excel(r"C:\Users\YIXIN\Downloads\Lampiran A2 Senarai pelajar FAIX.xlsx")
@@ -92,5 +146,6 @@ if __name__ == "__main__":
     ppt_text = extract_from_ppt(r"C:\Users\YIXIN\Downloads\Chapter 6_Estimation_v4_sakinah.pptx")
     print(ppt_text)
 
-    #print("\n--- Testing PDF Extraction ---")
-    #pdf_text = extract_from_pdf(r"C:\Users\YIXIN\Downloads\4. KBS Life Cycle SEM120252026.pdf")
+    print("\n --- Testing PDF Extraction---")
+    pdf_text = extract_from_pdf(r"C:\Users\YIXIN\Downloads\CLIPS_TUTO2_SEM1_20252026.pdf")
+    print(pdf_text)
