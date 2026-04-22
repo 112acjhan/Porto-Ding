@@ -1,7 +1,7 @@
 import hashlib
 
 # generate SHA-256 for files
-def calucalte_file_hash(file_path):
+def calculate_file_hash(file_path):
     # init SHA-256 object
     sha256_hash = hashlib.sha256()
 
