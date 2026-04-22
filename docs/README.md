@@ -32,6 +32,8 @@ SME-Ops-Orchestrator/
 │   │   │   ├── schemas.py       # Master Extraction JSON Schema
 │   │   │   └── database.py      # Logs & User Role relational DB
 │   │   │
+│   │   ├── tests/              # Database & Pydantic Schemas
+│   │   │
 │   │   └── utils/               # Helpers
 │   │       └── hashing.py       # Binary content hashing for deduplication
 │   │
