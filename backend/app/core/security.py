@@ -41,8 +41,10 @@ class SecurityManager:
             pii_types = master_json["security_flags"].get("pii_types", [])
             
             for key, value in entities.items():
-                if "phone" in key.lower() or "ic" in key.lower() or "bank" in key.lower():
-                    entities[key] = self.mask_value(str(value), "UNKNOWN")
+                if "ic" in key.lower():
+                    entities[key] = self.mask_value(str(value), "IC_NUMBER")
+                elif "bank" in key.lower():
+                    entities[key] = self.mask_value(str(value), "BANK_ACCOUNT")
             
             # Flag for "Request Access" button in frontend UI
             censored_data["security_flags"]["access_restricted"] = True

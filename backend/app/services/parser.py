@@ -130,22 +130,3 @@ def extract_from_pdf(file_path):
         
     except Exception as e:
         return f"PDF parsing failed: {e}"
-
-
-# Testing area
-if __name__ == "__main__":
-    print("--- Testing Excel Extraction ---")
-    excel_data = extract_from_excel(r"C:\Users\YIXIN\Downloads\Lampiran A2 Senarai pelajar FAIX.xlsx")
-    print(excel_data)
-
-    print("\n--- Testing Word Extraction ---")
-    word_text = extract_from_word(r"C:\Users\YIXIN\Downloads\EPI-script.docx")
-    print(word_text)
-
-    print("\n--- Testing PPT Extraction ---")
-    ppt_text = extract_from_ppt(r"C:\Users\YIXIN\Downloads\Chapter 6_Estimation_v4_sakinah.pptx")
-    print(ppt_text)
-
-    print("\n --- Testing PDF Extraction---")
-    pdf_text = extract_from_pdf(r"C:\Users\YIXIN\Downloads\CLIPS_TUTO2_SEM1_20252026.pdf")
-    print(pdf_text)
