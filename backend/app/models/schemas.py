@@ -1,5 +1,7 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
+from enum import Enum
+from datetime import datetime
 
 # ─── INVENTORY MODELS ───────────────────────────────────────────
 class InventoryItem(BaseModel):
@@ -42,3 +44,26 @@ class ExtractionResult(BaseModel):
     items: List[dict]     # List of {"item": "Eggs", "qty": 10}
     pii_detected: bool
     pii_types: List[str]
+
+
+# ─── ENUMS ──────────────────────────────────────────────────────
+class MessageSource(str, Enum):
+    WHATSAPP = "WHATSAPP"
+    TELEGRAM = "TELEGRAM"
+    WEB      = "WEB"
+
+class MessageType(str, Enum):
+    TEXT     = "TEXT"
+    IMAGE    = "IMAGE"
+    DOCUMENT = "DOCUMENT"
+
+# ─── INCOMING COMMUNICATION MODEL ───────────────────────────────
+class IncomingMessage(BaseModel):
+    message_id: str             # Unique ID from WhatsApp/Telegram
+    sender_id: str              # Phone number or Telegram User ID
+    sender_name: str            # Display name of the user
+    source: MessageSource       # Platform identifier
+    msg_type: MessageType       # Text, Image, or File
+    content: Optional[str] = None      # The text body (e.g., your filled-in template)
+    file_path: Optional[str] = None
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
