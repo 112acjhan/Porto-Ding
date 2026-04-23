@@ -27,7 +27,7 @@ class VectorDBService:
             collection_name=collection_name,
             vectors_config={
                 "dense": models.VectorParams(
-                    size=1536,
+                    size=384,
                     distance=models.Distance.COSINE,
                     on_disk=True
                 )
@@ -164,8 +164,8 @@ if __name__ == "__main__":
     dummy_id = "test_doc_001"
     dummy_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, "test_doc_001")) 
     
-    # Generate a random 1024-dimension list for the dense vector
-    dummy_dense = [random.uniform(-1, 1) for _ in range(1024)]
+    # Generate a random 384-dimension list for the dense vector
+    dummy_dense = [random.uniform(-1, 1) for _ in range(384)]
     
     # Generate dummy sparse data
     dummy_indices = [10, 45, 102]
