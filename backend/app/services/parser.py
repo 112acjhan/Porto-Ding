@@ -79,7 +79,7 @@ def extract_text_pdf(file_path):
     except Exception as e:
         return f"PDF parsing failed: {e}"
 
-if platform.system() == "Windows"
+if platform.system() == "Windows":
     pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
     poppler_bin_path = r'C:\Users\YIXIN\Downloads\Release-25.12.0-0\poppler-25.12.0\Library\bin'
 else:
