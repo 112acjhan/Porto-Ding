@@ -1,7 +1,7 @@
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api import inventory, orders, customers
+from app.api import inventory, orders, customers, tickets
 from app.api import whatsapp, telegram
 
 app = FastAPI(title="SME Ops Orchestrator")
@@ -19,6 +19,7 @@ app.include_router(whatsapp.router)
 app.include_router(inventory.router)
 app.include_router(orders.router)
 app.include_router(customers.router)
+app.include_router(tickets.router)
 
 @app.get("/api/health")
 def health():
