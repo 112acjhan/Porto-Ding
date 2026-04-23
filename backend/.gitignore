@@ -8,6 +8,8 @@ temp_uploads/
 **/downloaded_media/
 **/downloaded_media_tele/
 
+.pytest_chache/
+tests/test_data/temp_*
 __pycache__/
 *.py[cod]
 
