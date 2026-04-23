@@ -6,6 +6,7 @@ import os
 import pytesseract
 from pdf2image import convert_from_path
 import pdfplumber
+import platform
 
 # main function: parse 3 types of file
 # converts tabular data into json or list of dictionary
@@ -78,10 +79,11 @@ def extract_text_pdf(file_path):
     except Exception as e:
         return f"PDF parsing failed: {e}"
 
-# change the tesseract.exe path
-pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-# change the poppler bin path
-poppler_bin_path = r'C:\Users\YIXIN\Downloads\Release-25.12.0-0\poppler-25.12.0\Library\bin'
+if platform.system() == "Windows"
+    pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+    poppler_bin_path = r'C:\Users\YIXIN\Downloads\Release-25.12.0-0\poppler-25.12.0\Library\bin'
+else:
+    poppler_bin_path = None
 
 def extract_with_local_ocr(file_path):
     try:
