@@ -8,6 +8,8 @@ from app.services.ticket_service import TicketService
 
 class PortoDingOrchestrator:
     def __init__(self):
+        # Initialize the services once
+        self.sheets = GoogleSheetsService()
         self.rag = RAGService()
         self.security = SecurityManager()
         self.ticket_service = TicketService()
@@ -23,7 +25,6 @@ class PortoDingOrchestrator:
         safe_text = self.security.regex_scrub(raw_request_text)
         
         # 2. THE REASONING (Calling Z.AI GLM)
-        # We ask the AI: "Based on this text, what is the intent and what data is inside?"
         extraction = await self.call_glm(safe_text)
         
         # 3. THE TOOL DISPATCHER (The Agentic Logic)
