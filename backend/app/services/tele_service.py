@@ -18,7 +18,7 @@ class TelegramService:
         log_entry = f"Tele User {user_name}: {text}"
         with open(self.log_file, "a", encoding="utf-8") as f:
             f.write(log_entry + "\n")
-        print(f"📝 Tele message logged: {log_entry}")
+        print(f" Tele message logged: {log_entry}")
 
     def download_tele_file(self, file_id: str, file_name: str):
         try:
@@ -29,10 +29,10 @@ class TelegramService:
             with open(save_path, 'wb') as new_file:
                 new_file.write(downloaded_file)
             
-            print(f"📁 Tele file saved: {save_path}")
+            print(f" Tele file saved: {save_path}")
             return save_path
         except Exception as e:
-            print(f"❌ Tele download failed: {e}")
+            print(f" Tele download failed: {e}")
             return None
 
     def process_update(self, json_data: dict):
