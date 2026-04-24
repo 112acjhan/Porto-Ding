@@ -1,5 +1,6 @@
 import copy
 import logging
+import re
 from typing import Any, Dict
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -14,6 +15,24 @@ class SecurityManager:
             "BANK_ACCOUNT": r'\d{10,16}',
             # "PHONE_NUMBER": r'(\+?6?01)[0-46-9]-?\d{7,8}'
         }
+
+    def regex_scrub(self, raw_text: str) -> str:
+        if not isinstance(raw_text, str):
+            return ""
+
+        scrubbed_text = raw_text
+        scrubbed_text = re.sub(
+            self.patterns["IC_NUMBER"],
+            lambda matched_value: self.mask_value(matched_value.group(0), "IC_NUMBER"),
+            scrubbed_text,
+        )
+        scrubbed_text = re.sub(
+            self.patterns["BANK_ACCOUNT"],
+            lambda matched_value: self.mask_value(matched_value.group(0), "BANK_ACCOUNT"),
+            scrubbed_text,
+        )
+
+        return scrubbed_text
 
 
     def mask_value(self, value: str, pii_type: str) -> str:

@@ -1,127 +1,63 @@
 import json
+from typing import Any
+
 from openai import OpenAI
+
 from app.core.config import settings
-from app.models.schemas import ExtractionResult, Order, InventoryUpdate
-from app.services.google_sheets import GoogleSheetsService
-from app.services.rag_service import RAGService
+
 
 class GLMService:
-    def __init__(self):
-        # 1. Setup the Z.AI Client (OpenAI-Compatible)
+    def __init__(self) -> None:
         self.client = OpenAI(
             api_key=settings.ZAI_API_KEY,
-            base_url="https://api.ilmu.ai/v1"
+            base_url="https://api.ilmu.ai/v1",
         )
-        self.model = "ilmu-glm-5.1"
-        
-        # 2. Services for tools
-        self.sheets = GoogleSheetsService()
-        self.rag = RAGService()
+        self.model = settings.MODEL_NAME
 
-        # 3. Define the Tools Schema (The AI's "Manual")
-        self.tools = [
-            {
-                "type": "function",
-                "function": {
-                    "name": "update_inventory_tool",
-                    "description": "Updates the Google Sheet inventory when items are sold or added.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "item_name": {"type": "string"},
-                            "quantity": {"type": "number"},
-                            "mode": {"type": "string", "enum": ["ADD", "SUBTRACT"]}
-                        },
-                        "required": ["item_name", "quantity", "mode"]
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "search_rag_tool",
-                    "description": "Searches the SME memory for past orders, prices, or client history.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "query": {"type": "string", "description": "The search term or question."}
-                        },
-                        "required": ["query"]
-                    }
-                }
-            }
-        ]
+    def is_configured(self) -> bool:
+        return bool(settings.ZAI_API_KEY)
 
-    # ─── MAIN REASONING LOGIC ──────────────────────────────────────
-    async def process_and_extract(self, user_input: str, client_id: str, user_role: str):
-        """Now accepts client_id and user_role to secure the RAG search."""
-        
-        messages = [
-            {"role": "system", "content": "You are the Porto-Ding Orchestrator. Use tools to find info or update sheets."},
-            {"role": "user", "content": user_input}
-        ]
+    async def classify_message(self, scrubbed_request_text: str) -> dict[str, Any]:
+        system_prompt = (
+            "You classify SME operations messages into ticket intents. "
+            "Return JSON only with these keys: intent_category, formal_summary, query, security_flags. "
+            "intent_category must be one of ORDER_PLACEMENT, STOCK_PROCUREMENT, REFUND. "
+            "security_flags must be an object with pii_detected and pii_types."
+        )
 
         response = self.client.chat.completions.create(
             model=self.model,
-            messages=messages,
-            tools=self.tools,
-            tool_choice="auto"
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": scrubbed_request_text},
+            ],
+            temperature=0,
         )
 
-        response_message = response.choices[0].message
-        tool_calls = response_message.tool_calls
+        assistant_message = response.choices[0].message.content or ""
+        return self._parse_classifier_payload(assistant_message, scrubbed_request_text)
 
-        if tool_calls:
-            messages.append(response_message)
+    def _parse_classifier_payload(
+        self,
+        assistant_message: str,
+        scrubbed_request_text: str,
+    ) -> dict[str, Any]:
+        try:
+            return json.loads(assistant_message)
+        except json.JSONDecodeError:
+            json_object_start = assistant_message.find("{")
+            json_object_end = assistant_message.rfind("}")
+            if json_object_start != -1 and json_object_end != -1:
+                candidate_json = assistant_message[json_object_start : json_object_end + 1]
+                try:
+                    return json.loads(candidate_json)
+                except json.JSONDecodeError:
+                    pass
 
-            for tool_call in tool_calls:
-                function_name = tool_call.function.name
-                args = json.loads(tool_call.function.arguments)
-
-                if function_name == "search_rag_tool":
-                    # 🔥 INJECTION: We pass the client_id and role from the system, NOT from the AI
-                    result = await self.rag.search_memory_tool(
-                        query=args['query'], 
-                        client_id=client_id, 
-                        user_role=user_role
-                    )
-                
-                elif function_name == "update_inventory_tool":
-                    result = self.update_inventory_tool(**args)
-
-                messages.append({
-                    "tool_call_id": tool_call.id,
-                    "role": "tool",
-                    "name": function_name,
-                    "content": result,
-                })
-
-            # Final call to get the AI to summarize the RAG findings
-            final_res = self.client.chat.completions.create(model=self.model, messages=messages)
-            return final_res.choices[0].message.content
-
-        return response_message.content
-
-
-    # ─── TOOL IMPLEMENTATIONS ──────────────────────────────────────
-    def update_inventory_tool(self, item_name: str, quantity: float, mode: str):
-        """Bridge between AI and GoogleSheetsService."""
-        print(f"🚀 Executing Sheet Update: {mode} {quantity} {item_name}")
-        
-        # Logic: Find item_id by name
-        records = self.sheets.get_all_inventory()
-        for row in records:
-            if row['item_name'].lower() == item_name.lower():
-                item_id = row['item_id']
-                current_stock = float(row['stock_level'])
-                
-                # Calculate new stock
-                new_stock = current_stock + quantity if mode == "ADD" else current_stock - quantity
-                
-                self.sheets.update_inventory_row(
-                    item_id=item_id, 
-                    updates=InventoryUpdate(stock_level=new_stock)
-                )
-                return f"SUCCESS: {item_name} stock is now {new_stock}."
-        
-        return f"ERROR: Item '{item_name}' not found in inventory."
+        return {
+            "intent_category": "REFUND",
+            "formal_summary": scrubbed_request_text,
+            "query": scrubbed_request_text,
+            "security_flags": {"pii_detected": False, "pii_types": []},
+            "raw_model_output": assistant_message,
+        }

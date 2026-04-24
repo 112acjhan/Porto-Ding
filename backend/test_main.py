@@ -4,13 +4,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api import inventory, orders, customers, tickets
-from app.api import whatsapp, telegram
+from app.api import tickets
 from app.api.tickets import database_engine, get_database_session, ticket_service
 from app.core.orchestrator import PortoDingOrchestrator
 from app.services.ticket_service import metadata
 
-app = FastAPI(title="SME Ops Orchestrator")
+app = FastAPI(title="SME Ops Orchestrator Ticket Test App")
 
 app.add_middleware(
     CORSMiddleware,
@@ -19,14 +18,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Register Routers
-app.include_router(telegram.router)
-app.include_router(whatsapp.router)
-app.include_router(inventory.router)
-app.include_router(orders.router)
-app.include_router(customers.router)
 app.include_router(tickets.router)
-
 orchestrator = PortoDingOrchestrator(ticket_service=ticket_service)
 
 
@@ -43,7 +35,7 @@ async def startup() -> None:
 
 
 @app.get("/api/health")
-def health():
+def health() -> dict:
     return {"status": "ok", "service": "Server is running and healthy"}
 
 

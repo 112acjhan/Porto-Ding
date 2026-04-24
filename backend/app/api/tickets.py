@@ -8,8 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.services.ticket_service import TicketService
 
 
-# TODO: REPLACE WITH ACTUAL SECRETS LATER.
-dummy_database_url = "postgresql+asyncpg://DUMMY_USER:DUMMY_PASSWORD_REPLACE_ME@localhost:5432/DUMMY_DATABASE"
+dummy_database_url = "postgresql+asyncpg://admin:zai_PortoDing@localhost:5433/zai_vault"
 
 database_url = os.getenv("DATABASE_URL", dummy_database_url)
 database_engine = create_async_engine(database_url, future=True)
