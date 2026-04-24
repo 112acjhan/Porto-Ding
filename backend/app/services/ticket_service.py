@@ -3,18 +3,21 @@ from typing import Any
 
 from sqlalchemy import (
     Column,
-    DateTime,
     Integer,
     MetaData,
-    String,
     Table,
-    func,
     insert,
     select,
     update,
 )
 from sqlalchemy.dialects.postgresql import ENUM as PostgreSqlEnum
 from sqlalchemy.ext.asyncio import AsyncSession
+
+
+class TicketIntent(str, Enum):
+    ORDER_PLACEMENT = "ORDER_PLACEMENT"
+    STOCK_PROCUREMENT = "STOCK_PROCUREMENT"
+    REFUND = "REFUND"
 
 
 class TicketStatus(str, Enum):
@@ -30,8 +33,18 @@ tickets_table = Table(
     "tickets",
     metadata,
     Column("id", Integer, primary_key=True),
-    Column("document_id", Integer, nullable=False),
-    Column("extracted_intent", String, nullable=False),
+    Column("doc_id", Integer, nullable=True),
+    Column(
+        "intent_category",
+        PostgreSqlEnum(
+            TicketIntent.ORDER_PLACEMENT.value,
+            TicketIntent.STOCK_PROCUREMENT.value,
+            TicketIntent.REFUND.value,
+            name="ticket_intent",
+            create_type=False,
+        ),
+        nullable=False,
+    ),
     Column(
         "status",
         PostgreSqlEnum(
@@ -44,9 +57,8 @@ tickets_table = Table(
         ),
         nullable=False,
     ),
-    Column("approving_manager_id", Integer, nullable=True),
-    Column("created_at", DateTime(timezone=True), server_default=func.now()),
-    Column("updated_at", DateTime(timezone=True), server_default=func.now(), onupdate=func.now()),
+    Column("deadline", Integer, nullable=True),
+    Column("assigned_to", Integer, nullable=True),
 )
 
 
@@ -67,8 +79,8 @@ class TicketService:
         create_ticket_statement = (
             insert(tickets_table)
             .values(
-                document_id=document_id,
-                extracted_intent=extracted_intent,
+                doc_id=document_id,
+                intent_category=extracted_intent,
                 status=initial_ticket_status.value,
             )
             .returning(*tickets_table.c)
@@ -109,8 +121,7 @@ class TicketService:
             )
             .values(
                 status=TicketStatus.NEW.value,
-                approving_manager_id=approving_manager_id,
-                updated_at=func.now(),
+                assigned_to=approving_manager_id,
             )
             .returning(*tickets_table.c)
         )
@@ -139,7 +150,6 @@ class TicketService:
             )
             .values(
                 status=TicketStatus.COMPLETED.value,
-                updated_at=func.now(),
             )
             .returning(*tickets_table.c)
         )
@@ -170,11 +180,4 @@ class TicketService:
         return self._format_ticket_response(ticket)
 
     def _format_ticket_response(self, ticket_record: Any) -> dict:
-        ticket_dictionary = dict(ticket_record)
-
-        for date_field_name in ("created_at", "updated_at"):
-            date_field_value = ticket_dictionary.get(date_field_name)
-            if date_field_value is not None:
-                ticket_dictionary[date_field_name] = date_field_value.isoformat()
-
-        return ticket_dictionary
+        return dict(ticket_record)
