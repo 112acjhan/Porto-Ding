@@ -69,6 +69,8 @@ def test_extract_from_pdf_requires_ocr():
 
     result = extract_from_pdf(str(file_path))
     assert isinstance(result, str)
+    assert "OCR PDF parsing failed" not in result
+    assert "PDF parsing failed" not in result
 
 def test_extract_from_pdf_empty():
     file_path = os.path.join(TEST_DATA_DIR, "empty.pdf")

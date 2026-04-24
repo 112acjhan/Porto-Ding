@@ -1,23 +1,31 @@
 import torch
 import time
+from openai import OpenAI
+from app.core.config import settings
 from vector_db import VectorDBService
 from fastembed import SparseTextEmbedding
+from sentence_transformers import SentenceTransformer
 
 
 class RAGService:
     def __init__(self):
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.vector_db = VectorDBService()
-        self.client = zai_sdk.Client(api_key=settings.ZAI_API_KEY)
+        self.client = OpenAI(
+            api_key=settings.ZAI_API_KEY,
+            base_url="https://api.ilmu.ai/v1"
+        )
+        self.model = "ilmu-glm-5.1"
+        self.dense_model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
         self.sparse_model = SparseTextEmbedding(
             model_name="prithivida/Splade_PP_en_v1",
         )
-
+    
 
     async def search_memory_tool(self, query: str, client_id: str, user_role: str):
-        # 1. Turn query text into a vector using Z.AI
-        dense_vec = await self._get_z_ai_embeddings(query)
-        
+        # 1. Turn query text into a vector
+        dense_vec = self.dense_model.encode([query])[0].tolist()
+
         # 2. Get sparse representation
         sparse_output = next(self.sparse_model.query_embed(query))
         sparse_indices = sparse_output.indices
@@ -45,7 +53,7 @@ class RAGService:
     async def ingest_document(self, master_json: dict):        
         # Turn query text into a vector using Z.AI
         search_text = master_json["classification"]["formal_summary"]
-        dense_vector = await self._get_z_ai_embeddings(search_text)
+        dense_vector = await self.dense_model.encode([search_text])
 
         # 2. Generate Sparse Vector
         sparse_gen = self.sparse_model.embed([search_text])
