@@ -1,16 +1,17 @@
 import os
 import requests
 from dotenv import load_dotenv
+from app.core.config import settings
 
 load_dotenv()
 
 class WhatsAppService:
     def __init__(self):
-        self.verify_token = os.getenv("WHATSAPP_VERIFY_TOKEN", "Alex_SME_2026")
-        raw_token = os.getenv("WHATSAPP_ACCESS_TOKEN", "")
+        self.verify_token = settings.WHATSAPP_VERIFY_TOKEN
+        raw_token = settings.WHATSAPP_ACCESS_TOKEN
         # Clean Token
         self.access_token = raw_token.encode('ascii', 'ignore').decode('ascii').strip()
-        self.phone_number_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
+        self.phone_number_id = settings.WHATSAPP_PHONE_NUMBER_ID
         self.save_dir = "downloaded_media"
         self.seen_users_file = "seen_users.txt"
 

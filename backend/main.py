@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import inventory, orders, customers, tickets
-from app.api import whatsapp, telegram
+from app.api import whatsapp # telegram
 from app.api.tickets import database_engine, get_database_session, ticket_service
 from app.core.orchestrator import PortoDingOrchestrator
 from app.services.ticket_service import metadata
@@ -20,7 +20,7 @@ app.add_middleware(
 )
 
 # Register Routers
-app.include_router(telegram.router)
+# app.include_router(telegram.router)
 app.include_router(whatsapp.router)
 app.include_router(inventory.router)
 app.include_router(orders.router)
