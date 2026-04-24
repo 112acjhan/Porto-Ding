@@ -39,7 +39,15 @@ class WhatsAppService:
             "to": to_number,
             "type": "text",
             "text": {
-                "body": " Welcome to SME Operations Orchestrator!\n\nWe've received your message. Please send us any documents (PDF/Images) you'd like us to analyze, or type your request below."
+                "body": (
+                    "Welcome to our *SME Assistant!* 🌟\n\n"
+                    "To help us process your request, please reply with the following details in *ONE* message:\n\n"
+                    "1️⃣ *Full Name:*\n"
+                    "2️⃣ *IC Number:*\n"
+                    "3️⃣ *Purpose:* (Complaint / Inquiry / Booking)\n"
+                    "4️⃣ *Detailed Description:*\n\n"
+                    "Thank you for your cooperation!"
+                )
             }
         }
         
