@@ -30,8 +30,9 @@ class Settings(BaseSettings):
     OPERATIONAL_LEDGER_NAME: str = "Operational Ledger"
 
     # --- Messaging Gateways ---
-    WHATSAPP_VERIFY_TOKEN: str = "Alex_SME_2026"
-    WHATSAPP_ACCESS_TOKEN: str = "test_whatsapp_access_token"
+    WHATSAPP_VERIFY_TOKEN: str = ""
+    WHATSAPP_ACCESS_TOKEN: str = ""
+    WHATSAPP_PHONE_NUMBER_ID: str = ""
     TELEGRAM_BOT_TOKEN: str = "test_telegram_bot_token"
 
     # --- Security Settings ---

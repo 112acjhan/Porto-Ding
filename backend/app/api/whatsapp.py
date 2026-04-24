@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Request, Query, HTTPException
 from fastapi.responses import PlainTextResponse, Response
-from services.wa_service import WhatsAppService
+from app.services.wa_service import WhatsAppService
 
 router = APIRouter(prefix="/webhook/whatsapp", tags=["WhatsApp"])
 wa_service = WhatsAppService()

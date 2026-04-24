@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Request, Response
-from services.tele_service import TelegramService
+from app.services.tele_service import TelegramService
 
 router = APIRouter(prefix="/webhook/telegram", tags=["Telegram"])
 tele_service = TelegramService()
