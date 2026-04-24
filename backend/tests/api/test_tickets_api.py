@@ -4,30 +4,37 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
 from test_main import app, database_engine
 
 
 @pytest_asyncio.fixture
 async def ticket_api_client() -> AsyncGenerator[AsyncClient, None]:
-    async with database_engine.begin() as database_connection:
-        await database_connection.execute(
-            text(
-                """
-                INSERT INTO users (id, username, role, password_hash)
-                VALUES (99, 'integration_manager', 'MANAGER', 'integration-test-password-hash')
-                ON CONFLICT (id) DO NOTHING;
-                """
+    try:
+        async with database_engine.begin() as database_connection:
+            await database_connection.execute(
+                text(
+                    """
+                    INSERT INTO users (id, username, role, password_hash)
+                    VALUES (99, 'integration_manager', 'MANAGER', 'integration-test-password-hash')
+                    ON CONFLICT (id) DO NOTHING;
+                    """
+                )
             )
-        )
-        await database_connection.execute(
-            text(
-                """
-                INSERT INTO documents (id, unique_hash, gcs_url, source_platform)
-                VALUES (999, 'integration-test-document-999', 'gs://integration-tests/document-999', 'WEB')
-                ON CONFLICT (id) DO NOTHING;
-                """
+            await database_connection.execute(
+                text(
+                    """
+                    INSERT INTO documents (id, unique_hash, gcs_url, source_platform)
+                    VALUES (999, 'integration-test-document-999', 'gs://integration-tests/document-999', 'WEB')
+                    ON CONFLICT (id) DO NOTHING;
+                    """
+                )
             )
+    except (OSError, SQLAlchemyError) as database_error:
+        await database_engine.dispose()
+        pytest.skip(
+            f"PostgreSQL integration database is not available for API tests: {database_error}"
         )
 
     async with AsyncClient(
