@@ -17,13 +17,13 @@ class WhatsAppService:
         if not os.path.exists(self.save_dir):
             os.makedirs(self.save_dir)
 
-    def save_to_log(self, text: str):
+    def save_to_log(self, text: str):   
         with open("whatsapp_history.txt", "a", encoding="utf-8") as f:
             f.write(text + "\n")
         print(f" Logged text: {text}")
 
-    # send onboarding template
-    def send_onboarding_template(self, to_number: str):
+    
+    def send_onboarding_text(self, to_number: str):
         if not self.phone_number_id:
             print(" Error: WHATSAPP_PHONE_NUMBER_ID is not set in .env")
             return
@@ -33,22 +33,22 @@ class WhatsAppService:
             "Authorization": f"Bearer {self.access_token}",
             "Content-Type": "application/json"
         }
+        
         payload = {
             "messaging_product": "whatsapp",
             "to": to_number,
-            "type": "template",
-            "template": {
-                "name": "onboarding_form_v1", 
-                "language": {"code": "en_US"}
+            "type": "text",
+            "text": {
+                "body": " Welcome to SME Operations Orchestrator!\n\nWe've received your message. Please send us any documents (PDF/Images) you'd like us to analyze, or type your request below."
             }
         }
         
         try:
             res = requests.post(url, json=payload, headers=headers)
-            print(f" Template push status: {res.json()}")
+            print(f" Text reply status: {res.json()}")
             return res.json()
         except Exception as e:
-            print(f" Failed to send template: {e}")
+            print(f" Failed to send text: {e}")
             return None
 
     # identified new user
