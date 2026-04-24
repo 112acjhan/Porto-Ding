@@ -15,12 +15,12 @@ class Settings(BaseSettings):
         extra="ignore"
     )
 
-    ZAI_API_KEY: str = Field(..., alias="ZAI_API_KEY")
+    ZAI_API_KEY: str = Field("", alias="ZAI_API_KEY")
     MODEL_NAME: str = "ilmu-glm-5.1"
 
     # --- PostgreSQL Database ---
     PostgreSQL_USER: str = "root"
-    PostgreSQL_PASSWORD: str
+    PostgreSQL_PASSWORD: str = "test_postgresql_password"
     PostgreSQL_HOST: str = "localhost"
     PostgreSQL_PORT: int = 5432
     PostgreSQL_DB: str = "porto_ding_registry"
@@ -31,13 +31,13 @@ class Settings(BaseSettings):
 
     # --- Messaging Gateways ---
     WHATSAPP_VERIFY_TOKEN: str = "Alex_SME_2026"
-    WHATSAPP_ACCESS_TOKEN: str
-    TELEGRAM_BOT_TOKEN: str
+    WHATSAPP_ACCESS_TOKEN: str = "test_whatsapp_access_token"
+    TELEGRAM_BOT_TOKEN: str = "test_telegram_bot_token"
 
     # --- Security Settings ---
     PII_MASK_CHAR: str = "X"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 8  # 8 days
-    SECRET_KEY: str  # For JWT signing
+    SECRET_KEY: str = "test_secret_key"  # For JWT signing
 
 # Initialize the settings object
 settings = Settings()
