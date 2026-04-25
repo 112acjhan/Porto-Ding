@@ -72,7 +72,7 @@ SME-Ops-Orchestrator/
 
 ## Video Pitching Deck Link
 ```
-https://drive.google.com/file/d/1gUF6r2zAcZV7aW8QY7EgWXRiVw8HZf3Q/view?usp=sharing
+https://drive.google.com/file/d/1a8O0h_GueSMaK9GfzrB6BbIXEjs0KhrI/view?usp=sharing
 ```
 
 ## Document Link
