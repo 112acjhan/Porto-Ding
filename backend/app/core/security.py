@@ -13,7 +13,7 @@ class SecurityManager:
         self.patterns = {
             "IC_NUMBER": r'\d{6}-\d{2}-\d{4}',
             "BANK_ACCOUNT": r'\d{10,16}',
-            # "PHONE_NUMBER": r'(\+?6?01)[0-46-9]-?\d{7,8}'
+            "PHONE_NUMBER": r'(\+?6?01)[0-46-9]-?\d{7,8}'
         }
 
     def regex_scrub(self, raw_text: str) -> str:
@@ -21,6 +21,7 @@ class SecurityManager:
             return ""
 
         scrubbed_text = raw_text
+
         scrubbed_text = re.sub(
             self.patterns["IC_NUMBER"],
             lambda matched_value: self.mask_value(matched_value.group(0), "IC_NUMBER"),
@@ -80,6 +81,21 @@ class SecurityManager:
             "status": status
         }
         logger.info(f"AUDIT_LOG | {log_entry}")
+
+    def extract_raw_pii(self, raw_text: str) -> dict:
+        """Extracts the unmasked PII from the raw text for database storage."""
+        if not isinstance(raw_text, str):
+            return {}
+            
+        ic_match = re.search(self.patterns["IC_NUMBER"], raw_text)
+        bank_match = re.search(self.patterns["BANK_ACCOUNT"], raw_text)
+        phone_match = re.search(self.patterns["PHONE_NUMBER"], raw_text)
+        
+        return {
+            "ic_number": ic_match.group(0) if ic_match else None,
+            "bank_account": bank_match.group(0) if bank_match else None,
+            "phone_number": phone_match.group(0) if phone_match else None
+        }
 
 
 if __name__ == "__main__":

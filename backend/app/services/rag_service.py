@@ -1,15 +1,17 @@
+import uuid
 import torch
 import time
+from datetime import datetime
 from openai import OpenAI
 from app.core.config import settings
-from vector_db import VectorDBService
+from .vector_db import VectorDBService
 from fastembed import SparseTextEmbedding
 from sentence_transformers import SentenceTransformer
 
 
 class RAGService:
     def __init__(self):
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")   
         self.vector_db = VectorDBService()
         self.client = OpenAI(
             api_key=settings.ZAI_API_KEY,
@@ -51,22 +53,29 @@ class RAGService:
     
 
     async def ingest_document(self, master_json: dict):        
-        # Turn query text into a vector using Z.AI
+        # 1. Turn query text into a vector using your dense model
         search_text = master_json["classification"]["formal_summary"]
-        dense_vector = await self.dense_model.encode([search_text])
+        dense_vector = self.dense_model.encode(search_text).tolist()
 
         # 2. Generate Sparse Vector
         sparse_gen = self.sparse_model.embed([search_text])
         sparse_output = next(sparse_gen)
         
-        # 3. Prepare the Payload
+        # 3. PERFECT PAYLOAD ALIGNMENT (Matching your design)
         payload = {
             "doc_id": master_json["metadata"]["unique_hash"],
-            "text_to_search": search_text,
-            "raw_ocr": master_json["metadata"].get("raw_text"),
             "source_url": master_json["metadata"]["source_url"],
+            "text_to_search": search_text,
+            "raw_text": master_json["metadata"].get("raw_text", ""), 
+            "client": master_json.get("payload_extras", {}).get("client", "Unknown"),
+            
+            # --- NEWLY ADDED FIELDS ---
+            "deadline": master_json.get("extracted_entities", {}).get("deadline"),
+            "timestamp": int(time.time()), 
             "intent": master_json["classification"]["intent_category"],
-            "authorized_roles": "MANAGER" if master_json["security_flags"]["pii_detected"] else "STAFF"
+            "status": "NEW", # Default state when entering the system
+            "authorized_roles": "MANAGER" if master_json["security_flags"]["pii_detected"] else "STAFF",
+            "extracted_entities": master_json.get("extracted_entities", {})
         }
 
         # 4. Push to Vector DB
@@ -79,3 +88,23 @@ class RAGService:
         )
         
         return {"status": "success", "doc_id": payload["doc_id"]}
+    
+    async def update_document_status(self, unique_hash: str, new_status: str) -> bool:
+        """Surgically updates the status in Qdrant without recalculating vectors."""
+        try:
+            # Recreate the Qdrant UUID
+            try:
+                point_id = str(uuid.UUID(unique_hash))
+            except ValueError:
+                point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, unique_hash))
+            
+            # Update ONLY the status field
+            self.vector_db.client.set_payload(
+                collection_name=self.vector_db.collection_name,
+                payload={"status": new_status},
+                points=[point_id]
+            )
+            return True
+        except Exception as e:
+            print(f"🚨 [QDRANT SYNC ERROR]: Failed to update status: {e}")
+            return False

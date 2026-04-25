@@ -21,7 +21,7 @@ class GLMService:
         system_prompt = (
             "You classify SME operations messages into ticket intents. "
             "Return JSON only with these keys: intent_category, formal_summary, query, security_flags. "
-            "intent_category must be one of ORDER_PLACEMENT, STOCK_PROCUREMENT, REFUND. "
+            "intent_category must be one of ORDER_PLACEMENT, STOCK_PROCUREMENT, REFUND, UNKNOWN. "
             "security_flags must be an object with pii_detected and pii_types."
         )
 
@@ -55,7 +55,7 @@ class GLMService:
                     pass
 
         return {
-            "intent_category": "REFUND",
+            "intent_category": "UNKNOWN",
             "formal_summary": scrubbed_request_text,
             "query": scrubbed_request_text,
             "security_flags": {"pii_detected": False, "pii_types": []},

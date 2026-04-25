@@ -1,248 +1,429 @@
-from collections.abc import Awaitable, Callable
-from typing import Any
-
+import hashlib
+import json
+import logging
+import os
+import tempfile
+import time
+import asyncio
+from datetime import datetime, timezone
+from typing import Any, Callable, Awaitable
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import insert, select, desc
 
 from app.core.security import SecurityManager
 from app.services.glm_service import GLMService
-from app.services.ticket_service import TicketIntent, TicketService
+from app.services.wa_service import WhatsAppService
+from app.services.google_sheets import GoogleSheetsService
+from app.services.rag_service import RAGService
+from app.services.ticket_service import (
+    TicketIntent, TicketService, documents_table, audit_logs_table
+)
+from app.models.schemas import Order, Customer
+from app.services.gdrive_service import GoogleDriveService
 
+logger = logging.getLogger("PortoDingOrchestrator")
+# Add your company name here!
+MY_COMPANY_NAME = "PortoDing Sdn Bhd" 
 
-ClassifierCallable = Callable[[str], Awaitable[dict[str, Any]]]
-NotificationCallable = Callable[[str, str, int], Awaitable[dict[str, Any]]]
+# Notice the 'f' at the beginning of the string to allow variable injection
+MASTER_JSON_SYSTEM_PROMPT = f"""
+You are the AI operations manager for "{MY_COMPANY_NAME}", a Malaysian SME.
+Analyse the input (which has already been PII-scrubbed) and return ONLY a valid JSON object — no markdown, no prose.
 
+CRITICAL INSTRUCTION: 
+When extracting the "client_name", DO NOT extract our own name ("{MY_COMPANY_NAME}"). 
+You must extract the name of the EXTERNAL customer, vendor, or supplier we are doing business with.
+
+Required output schema:
+{{
+  "metadata": {{
+    "unique_hash": "<will be filled by system>",
+    "timestamp": "<ISO-8601 UTC>",
+    "detected_language": "<IETF tag, e.g. ms-MY or en-MY>",
+    "confidence_score": 0.9,
+    "source_type": "<WhatsApp_Text | WhatsApp_Image_OCR | Web_Upload | ...>",
+    "source_url": "<will be filled by system>"
+  }},
+  "classification": {{
+    "intent_category": "<ORDER_PLACEMENT | STOCK_PROCUREMENT | REFUND | UNKNOWN>",
+    "urgency_level": 3,
+    "formal_summary": "<professional one-sentence summary in English>"
+  }},
+  "extracted_entities": {{
+    "client_name": "<string or null>",
+    "items": [{{"item_name": "<str>", "quantity": 1, "unit": "<str>"}}],
+    "location": "<string or null>",
+    "deadline": "<YYYY-MM-DD or null>"
+  }},
+  "security_flags": {{
+    "pii_detected": false,
+    "pii_types": ["<IC_NUMBER|BANK_ACCOUNT|PHONE_NUMBER|...>"],
+    "requires_manager_approval": false
+  }}
+}}
+"""
 
 class PortoDingOrchestrator:
     def __init__(
         self,
         ticket_service: TicketService | None = None,
         security_manager: SecurityManager | None = None,
-        rag_service: Any | None = None,
-        classifier: ClassifierCallable | None = None,
-        notification_sender: NotificationCallable | None = None,
+        rag_service: RAGService | None = None,
+        glm_service: GLMService | None = None,
+        sheets_service: GoogleSheetsService | None = None,
+        wa_service: WhatsAppService | None = None,
     ) -> None:
         self.ticket_service = ticket_service or TicketService()
         self.security = security_manager or SecurityManager()
-        self.rag = rag_service
-        self.classifier = classifier
-        self.notification_sender = notification_sender or self._send_whatsapp_confirmation
-        self.glm_service = GLMService()
+        self.glm = glm_service or GLMService()
+        self.rag = rag_service or RAGService()
+        self.wa_service = wa_service or WhatsAppService()
+        
+        try:
+            self.drive_service = GoogleDriveService()
+        except Exception:
+            self.drive_service = None
+            
+        try:
+            self.sheets = sheets_service or GoogleSheetsService()
+        except Exception:
+            self.sheets = None
 
-        if self.rag is None:
-            self.rag = self._build_rag_service_if_available()
+    def _hash_text(self, text: str) -> str:
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()
+        
+    def _hash_file_bytes(self, data: bytes) -> str:
+        return hashlib.sha256(data).hexdigest()
 
-    async def process_request(
-        self,
-        raw_request_text: str,
-        user_role: str,
-        source_document_id: int,
-        database_session: AsyncSession,
-    ) -> dict[str, Any]:
-        scrubbed_request_text = self.security.regex_scrub(raw_request_text)
-        scrubbed_content_was_detected = scrubbed_request_text != raw_request_text
+    async def _semantic_dedup_check(self, text: str, client_id: str, role: str) -> str | None:
+        if not self.rag: return None
+        try:
+            context = await self.rag.search_memory_tool(query=text, client_id=client_id, user_role=role)
+            if context and context != "No relevant memory found.":
+                return f"⚠️ Warning: A similar request was found in memory for client {client_id}."
+        except Exception as e:
+            logger.warning(f"Semantic dedup check failed: {e}")
+        return None
 
-        self.security.log_audit_event(
-            user_id=user_role,
-            action="SCRUB_AND_CLASSIFY_REQUEST",
-            doc_id=str(source_document_id),
-            status="STARTED",
-        )
+    # ─── PIPELINE 1: TEXT ──────────────────────────────────────────────────
+    async def process_text_input(self, raw_text: str, sender_id: str, user_role: str, source_platform: str, database_session: AsyncSession) -> dict:
+        unique_hash = self._hash_text(raw_text)
+        await self._audit(database_session, user_role, "TEXT_INTAKE", None)
+        
+        # 1. Binary Dedup
+        existing = await self._find_document_by_hash(unique_hash, database_session)
+        if existing:
+            return {"status": "DUPLICATE", "message": "Message already processed.", "existing_id": existing["id"]}
+        
+        raw_pii = self.security.extract_raw_pii(raw_text)
 
-        extraction = await self.call_glm(scrubbed_request_text)
-        normalized_intent_category = self._normalize_intent_category(extraction)
-        requires_manager_approval = self._requires_manager_approval(
-            extraction=extraction,
-            user_role=user_role,
-            scrubbed_content_was_detected=scrubbed_content_was_detected,
-        )
+        # 2. PII Scrub & Semantic Dedup
+        scrubbed_text = self.security.regex_scrub(raw_text)
+        pii_was_scrubbed = scrubbed_text != raw_text
+        semantic_warning = await self._semantic_dedup_check(scrubbed_text, sender_id, user_role)
+        
+        # 3. AI Classification
+        master_json = await self._call_glm_for_master_json(scrubbed_text, unique_hash, "", f"{source_platform}_Text")
+        
+        intent = master_json.get("classification", {}).get("intent_category")
+        valid_intents = [
+            TicketIntent.ORDER_PLACEMENT.value, 
+            TicketIntent.STOCK_PROCUREMENT.value, 
+            TicketIntent.REFUND.value
+        ]
 
-        created_ticket = await self.ticket_service.create_new_ticket(
-            document_id=source_document_id,
-            extracted_intent=normalized_intent_category,
-            requires_manager_approval=requires_manager_approval,
-            database_session=database_session,
-        )
+        if not intent or intent not in valid_intents:
+            print("[ORCHESTRATOR] Document is IRRELEVANT")
+            return {"status": "IRRELEVANT", "message": "This document is irrelevant."}
+        
+        if pii_was_scrubbed:
+            master_json["security_flags"]["pii_detected"] = True
 
-        notification_result = await self.notification_sender(
-            str(source_document_id),
-            (
-                "Ticket created and waiting for manager approval."
-                if requires_manager_approval
-                else "Ticket created and ready for processing."
-            ),
-            created_ticket["id"],
-        )
-
-        response_payload: dict[str, Any] = {
-            "ticket": created_ticket,
-            "classification": extraction,
-            "scrubbed_request_text": scrubbed_request_text,
-            "requires_manager_approval": requires_manager_approval,
-            "notification": notification_result,
-        }
-
-        if extraction.get("query") and self.rag is not None:
-            response_payload["memory_context"] = await self._search_memory_context(
-                query=str(extraction["query"]),
-                client_id=str(source_document_id),
-                user_role=user_role,
-            )
-
-        self.security.log_audit_event(
-            user_id=user_role,
-            action="SCRUB_AND_CLASSIFY_REQUEST",
-            doc_id=str(source_document_id),
-            status="SUCCESS",
-        )
-
-        return response_payload
-
-    async def call_glm(self, scrubbed_request_text: str) -> dict[str, Any]:
-        if self.classifier is not None:
-            classifier_result = await self.classifier(scrubbed_request_text)
-            return self._coerce_extraction_payload(classifier_result, scrubbed_request_text)
-
-        if self.glm_service.is_configured():
-            try:
-                classifier_result = await self.glm_service.classify_message(scrubbed_request_text)
-                return self._coerce_extraction_payload(classifier_result, scrubbed_request_text)
-            except Exception:
-                pass
-
-        return self._build_fallback_extraction(scrubbed_request_text)
-
-    def _coerce_extraction_payload(
-        self,
-        classifier_result: dict[str, Any],
-        scrubbed_request_text: str,
-    ) -> dict[str, Any]:
-        if not isinstance(classifier_result, dict):
-            classifier_result = {}
-
-        security_flags = classifier_result.get("security_flags")
-        if not isinstance(security_flags, dict):
-            security_flags = {}
-
-        coerced_payload = dict(classifier_result)
-        coerced_payload["formal_summary"] = str(
-            classifier_result.get("formal_summary") or scrubbed_request_text.strip()
-        )
-        coerced_payload["security_flags"] = security_flags
-        coerced_payload.setdefault("query", scrubbed_request_text.strip())
-        return coerced_payload
-
-    def _build_fallback_extraction(self, scrubbed_request_text: str) -> dict[str, Any]:
-        lowered_request_text = scrubbed_request_text.lower()
-
-        if any(keyword in lowered_request_text for keyword in ("order", "purchase", "buy")):
-            fallback_intent_category = TicketIntent.ORDER_PLACEMENT.value
-        elif any(keyword in lowered_request_text for keyword in ("stock", "procurement", "supplier", "inventory")):
-            fallback_intent_category = TicketIntent.STOCK_PROCUREMENT.value
+        if intent == TicketIntent.STOCK_PROCUREMENT.value:
+            entity_type = "SUPPLIER"
         else:
-            fallback_intent_category = TicketIntent.REFUND.value
+            entity_type = "CUSTOMER"
 
-        pii_was_detected = "[REDACTED]" in scrubbed_request_text or "XXXX" in scrubbed_request_text
+        extracted_client = master_json.get("extracted_entities", {}).get("client_name")
+        
+        if source_platform.upper() == "WHATSAPP":
+            client_identifier = sender_id
+        else:
+            client_identifier = raw_pii.get("phone_number") or extracted_client or f"Unknown_Entity_{unique_hash[:8]}"
 
-        return {
-            "intent_category": fallback_intent_category,
-            "formal_summary": scrubbed_request_text.strip(),
-            "query": scrubbed_request_text.strip(),
-            "security_flags": {
-                "pii_detected": pii_was_detected,
-                "pii_types": ["IC_NUMBER"] if pii_was_detected else [],
-            },
-        }
-
-    def _normalize_intent_category(self, extraction: dict[str, Any]) -> str:
-        raw_intent_category = extraction.get("intent") or extraction.get("intent_category")
-        normalized_key = str(raw_intent_category or "").strip().upper().replace(" ", "_")
-
-        intent_aliases = {
-            "ORDER": TicketIntent.ORDER_PLACEMENT.value,
-            "ORDER_PLACEMENT": TicketIntent.ORDER_PLACEMENT.value,
-            "PLACE_ORDER": TicketIntent.ORDER_PLACEMENT.value,
-            "PURCHASE_ORDER": TicketIntent.ORDER_PLACEMENT.value,
-            "STOCK_PROCUREMENT": TicketIntent.STOCK_PROCUREMENT.value,
-            "PROCUREMENT": TicketIntent.STOCK_PROCUREMENT.value,
-            "INVENTORY_REQUEST": TicketIntent.STOCK_PROCUREMENT.value,
-            "SUPPLIER_PROCUREMENT": TicketIntent.STOCK_PROCUREMENT.value,
-            "REFUND": TicketIntent.REFUND.value,
-            "REFUND_REQUEST": TicketIntent.REFUND.value,
-            "RETURN": TicketIntent.REFUND.value,
-        }
-
-        return intent_aliases.get(normalized_key, TicketIntent.REFUND.value)
-
-    def _requires_manager_approval(
-        self,
-        extraction: dict[str, Any],
-        user_role: str,
-        scrubbed_content_was_detected: bool,
-    ) -> bool:
-        if scrubbed_content_was_detected:
-            return True
-
-        if user_role.upper() == "STAFF":
-            return True
-
-        return self._extraction_requires_manager_approval(extraction)
-
-    def _extraction_requires_manager_approval(self, extraction: dict[str, Any]) -> bool:
-        security_flags = extraction.get("security_flags") or {}
-
-        if security_flags.get("pii_detected") is True:
-            return True
-
-        if security_flags.get("sensitive_data_detected") is True:
-            return True
-
-        sensitive_data_fields = (
-            "pii_types",
-            "sensitive_fields",
-            "restricted_fields",
+        entity_id = await self.ticket_service.get_or_create_external_entity(
+            identifier=client_identifier,
+            entity_type=entity_type,
+            display_name=extracted_client,
+            ic_no=raw_pii.get("ic_number"),
+            bank_acc=raw_pii.get("bank_account"),
+            database_session=database_session
         )
-        return any(bool(security_flags.get(field_name)) for field_name in sensitive_data_fields)
+        # 4. Save Doc
+        doc_record = await self._save_document_record(unique_hash, None, source_platform, None, entity_id, database_session)
 
-    async def _search_memory_context(
-        self,
-        query: str,
-        client_id: str,
-        user_role: str,
-    ) -> str | None:
-        if self.rag is None or not hasattr(self.rag, "search_memory_tool"):
-            return None
+        master_json["metadata"]["raw_text"] = scrubbed_text
+        
+        # 5. Ingest to RAG
+        await self._ingest_to_qdrant(master_json, sender_id)
 
-        return await self.rag.search_memory_tool(
-            query=query,
-            client_id=client_id,
-            user_role=user_role,
+        # 6. Auto-Update Sheets
+        sheets_result = None
+        if master_json["classification"]["intent_category"] == TicketIntent.ORDER_PLACEMENT.value and not master_json["security_flags"]["pii_detected"]:
+            sheets_result = self._push_order_to_sheets(master_json, doc_record["id"])
+
+        # 7. Create Ticket
+        requires_approval = self._needs_approval(master_json, user_role, pii_was_scrubbed)
+        ticket = await self.ticket_service.create_new_ticket(
+            document_id=doc_record["id"],
+            extracted_intent=master_json["classification"]["intent_category"],
+            requires_manager_approval=requires_approval,
+            database_session=database_session
         )
 
-    def _build_rag_service_if_available(self) -> Any | None:
-        try:
-            from app.services.rag_service import RAGService
-        except Exception:
-            return None
-
-        try:
-            return RAGService()
-        except Exception:
-            return None
-
-    async def _send_whatsapp_confirmation(
-        self,
-        recipient_identifier: str,
-        message_text: str,
-        ticket_id: int,
-    ) -> dict[str, Any]:
-        dummy_whatsapp_api_key = "DUMMY_API_KEY_REPLACE_ME"
-        dummy_whatsapp_api_url = "https://dummy-whatsapp-provider.example/messages"
+        # 8. Notify
+        msg = "Ticket awaiting manager approval." if requires_approval else "Ticket ready for processing."
+        await self.whatsapp_send(sender_id, msg, ticket["id"])
+        await self._audit(database_session, user_role, "TEXT_INTAKE_COMPLETE", ticket["id"])
 
         return {
-            "api_url": dummy_whatsapp_api_url,
-            "api_key": dummy_whatsapp_api_key,
-            "recipient_identifier": recipient_identifier,
-            "message_text": message_text,
-            "ticket_id": ticket_id,
-            "status": "mocked",
+            "status": "OK",
+            "ticket": ticket,
+            "master_json": self.security.apply_role_based_censorship(master_json, user_role),
+            "semantic_warning": semantic_warning,
+            "sheets_update": sheets_result
         }
+
+    # ─── PIPELINE 2: DOCUMENTS ──────────────────────────────────────────────
+    async def process_document_input(self, file_bytes: bytes, file_name: str, sender_id: str, user_role: str, source_platform: str, uploader_id: int, database_session: AsyncSession) -> dict:
+        unique_hash = self._hash_file_bytes(file_bytes)
+        await self._audit(database_session, user_role, "DOC_INTAKE", None)
+
+        existing = await self._find_document_by_hash(unique_hash, database_session)
+        if existing:
+            print(f"🛑 [ORCHESTRATOR] DUPLICATE FOUND! This file was already saved as Document ID: {existing['id']}")
+            return {"status": "DUPLICATE", "message": "File already processed.", "existing_id": existing["id"]}
+
+        # Parse Document (PDF, Word, Excel, etc.)
+        raw_text = self._parse_document(file_bytes, file_name)
+        raw_pii = self.security.extract_raw_pii(raw_text)
+
+        scrubbed_text = self.security.regex_scrub(raw_text)
+        pii_was_scrubbed = scrubbed_text != raw_text
+        semantic_warning = await self._semantic_dedup_check(scrubbed_text, sender_id, user_role)
+
+        ext = file_name.rsplit(".", 1)[-1].upper() if "." in file_name else "BIN"
+        safe_file_name = f"{unique_hash[:8]}_{file_name}"
+
+        temp_url = f"pending_upload/{safe_file_name}"
+        master_json = await self._call_glm_for_master_json(scrubbed_text, unique_hash, temp_url, f"{source_platform}_{ext}_Upload")
+        
+        intent = master_json.get("classification", {}).get("intent_category")
+        valid_intents = [
+            TicketIntent.ORDER_PLACEMENT.value, 
+            TicketIntent.STOCK_PROCUREMENT.value, 
+            TicketIntent.REFUND.value
+        ]
+
+        if not intent or intent not in valid_intents:
+            print("[ORCHESTRATOR] Document is IRRELEVANT. Dumping it. Nothing uploaded or saved.")
+            return {"status": "IRRELEVANT", "message": "This document is irrelevant."}
+        
+        if self.drive_service:
+            try:
+                print(f"☁️ Uploading {safe_file_name} to Google Drive...")
+                source_url = self.drive_service.upload_file(safe_file_name, file_bytes)
+            except Exception as e:
+                print(f"🚨 Drive Upload Failed: {e}")
+                source_url = f"local_storage/{safe_file_name}"
+        else:
+            source_url = f"local_storage/{safe_file_name}"
+            
+        master_json["metadata"]["source_url"] = source_url
+
+        if pii_was_scrubbed:
+            master_json["security_flags"]["pii_detected"] = True
+
+        if intent == TicketIntent.STOCK_PROCUREMENT.value:
+            entity_type = "SUPPLIER"
+        else:
+            entity_type = "CUSTOMER"
+
+        extracted_client = master_json.get("extracted_entities", {}).get("client_name")
+
+        if source_platform.upper() == "WHATSAPP":
+            client_identifier = sender_id
+        else:
+            client_identifier = raw_pii.get("phone_number") or extracted_client or f"Unknown_Entity_{unique_hash[:8]}"
+
+        entity_id = await self.ticket_service.get_or_create_external_entity(
+            identifier=client_identifier,
+            entity_type=entity_type,
+            display_name=extracted_client,
+            ic_no=raw_pii.get("ic_number"),
+            bank_acc=raw_pii.get("bank_account"),
+            database_session=database_session
+        )
+
+        doc_record = await self._save_document_record(unique_hash, source_url, source_platform, uploader_id, entity_id, database_session)
+        
+        master_json["metadata"]["raw_text"] = scrubbed_text
+        
+        await self._ingest_to_qdrant(master_json, sender_id)
+
+        sheets_result = None
+        if self.sheets and not master_json["security_flags"]["pii_detected"]:
+            try:
+                # Auto-Create Customer if they are missing
+                customers = self.sheets.get_all_customers()
+                if not any(str(c.get("customer_id")) == str(client_identifier) for c in customers):
+                    new_cust = Customer(
+                        customer_id=client_identifier,
+                        contact_person=extracted_client or "Unknown",
+                        masked_bank_details=self.security.mask_value(raw_pii.get("bank_account") or "", "BANK_ACCOUNT"),
+                        masked_ic_number=self.security.mask_value(raw_pii.get("ic_number") or "", "IC_NUMBER")
+                    )
+                    self.sheets.add_customer_row(new_cust)
+
+                # Auto-Create Order for BOTH Intents
+                if intent in [TicketIntent.ORDER_PLACEMENT.value, TicketIntent.STOCK_PROCUREMENT.value]:
+                    sheets_result = self._push_order_to_sheets(master_json, doc_record["id"], intent)
+            except Exception as e:
+                print(f"🚨 Sheets Sync Error: {e}")
+                
+
+        requires_approval = self._needs_approval(master_json, user_role, pii_was_scrubbed)
+        ticket = await self.ticket_service.create_new_ticket(
+            document_id=doc_record["id"],
+            extracted_intent=master_json["classification"]["intent_category"],
+            requires_manager_approval=requires_approval,
+            database_session=database_session
+        )
+
+        msg = "Document Ticket awaiting manager approval." if requires_approval else "Document Ticket ready for processing."
+        await self.whatsapp_send(sender_id, msg, ticket["id"])
+        await self._audit(database_session, user_role, "DOC_INTAKE_COMPLETE", ticket["id"])
+
+        return {
+            "status": "OK",
+            "ticket": ticket,
+            "master_json": self.security.apply_role_based_censorship(master_json, user_role),
+            "semantic_warning": semantic_warning,
+            "sheets_update": sheets_result
+        }
+
+    # ─── HELPERS ──────────────────────────────────────────────────────────
+    def _parse_document(self, file_bytes: bytes, file_name: str) -> str:
+        from app.services.parser import extract_from_excel, extract_from_pdf, extract_from_ppt, extract_from_word
+        ext = file_name.rsplit(".", 1)[-1].lower() if "." in file_name else ""
+        suffix = f".{ext}" if ext else ".bin"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp.write(file_bytes)
+            tmp_path = tmp.name
+        try:
+            if ext in ("pdf",): return extract_from_pdf(tmp_path)
+            elif ext in ("docx", "doc"): return extract_from_word(tmp_path)
+            elif ext in ("pptx", "ppt"): return extract_from_ppt(tmp_path)
+            elif ext in ("xlsx", "xls", "csv"): return extract_from_excel(tmp_path)
+            else: return file_bytes.decode("utf-8", errors="replace")
+        finally:
+            os.unlink(tmp_path)
+
+    async def _call_glm_for_master_json(self, text: str, unique_hash: str, source_url: str, source_type: str) -> dict:
+        try:
+            response = self.glm.client.chat.completions.create(
+                model=self.glm.model,
+                messages=[
+                    {"role": "system", "content": MASTER_JSON_SYSTEM_PROMPT},
+                    {"role": "user", "content": text},
+                ],
+                temperature=0,
+                response_format={"type": "json_object"}
+            )
+            parsed = json.loads(response.choices[0].message.content)
+        except Exception as exc:
+            logger.warning(f"GLM failed: {exc}")
+            parsed = {"classification": {"intent_category": "UNKNOWN", "formal_summary": text[:100]}}
+            
+        parsed.setdefault("metadata", {})
+        parsed["metadata"]["unique_hash"] = unique_hash
+        parsed["metadata"]["source_url"] = source_url
+        parsed["metadata"]["source_type"] = source_type
+        parsed.setdefault("security_flags", {"pii_detected": False})
+        return parsed
+
+    async def _save_document_record(self, unique_hash: str, gcs_url: str | None, source_platform: str, uploader_id: int | None, entity_id: int | None, db: AsyncSession) -> dict:
+        stmt = insert(documents_table).values(
+            unique_hash=unique_hash, 
+            gcs_url=gcs_url, 
+            source_platform=source_platform, 
+            uploader_id=uploader_id, 
+            entity_id=entity_id,
+            created_at=datetime.now(timezone.utc)
+        ).returning(*documents_table.c)
+        res = await db.execute(stmt)
+        await db.commit()
+        return dict(res.mappings().one())
+
+    async def _find_document_by_hash(self, unique_hash: str, db: AsyncSession) -> dict | None:
+        res = await db.execute(select(documents_table).where(documents_table.c.unique_hash == unique_hash))
+        row = res.mappings().one_or_none()
+        return dict(row) if row else None
+
+    async def _ingest_to_qdrant(self, master_json: dict, client_id: str) -> None:
+        if self.rag:
+            try:
+                extracted_client = master_json.get("extracted_entities", {}).get("client_name")
+                actual_client = extracted_client if extracted_client else client_id
+
+                master_json.setdefault("payload_extras", {})["client"] = actual_client
+                await self.rag.ingest_document(master_json)
+            except Exception as exc:
+                print(f"🚨 [QDRANT ERROR] Failed to ingest document: {exc}")
+
+    def _push_order_to_sheets(self, master_json: dict, doc_id: int, intent: str) -> dict | None:
+        if not self.sheets: return None
+        try:
+            # Calculate total items
+            total = sum(float(i.get("quantity", 0)) for i in master_json.get("extracted_entities", {}).get("items", []))
+            
+            # Procurement is a negative hit to cashflow
+            if intent == TicketIntent.STOCK_PROCUREMENT.value:
+                total = -abs(total)
+            else:
+                total = abs(total)
+                
+            order = Order(
+                order_id=f"ORD-{doc_id}",
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                customer_name=master_json.get("extracted_entities", {}).get("client_name") or "Unknown",
+                total_amount=total,
+                status="Pending"
+            )
+            self.sheets.add_order_row(order)
+            return {"status": "written", "order_id": order.order_id}
+        except Exception as e: 
+            logger.error(f"Sheet push error: {e}")
+            return None
+
+    def _needs_approval(self, master_json: dict, user_role: str, pii_was_scrubbed: bool) -> bool:
+        if pii_was_scrubbed or user_role.upper() == "STAFF": return True
+        return master_json.get("security_flags", {}).get("pii_detected", False)
+
+    async def _audit(self, session: AsyncSession, user_id: str, action: str, target_id: int | None) -> None:
+        try:
+            stmt = insert(audit_logs_table).values(
+                action=f"{action}|role={user_id}", 
+                target_id=target_id, 
+                timestamp=datetime.now(timezone.utc)
+            )
+            await session.execute(stmt)
+            await session.commit()
+        except Exception as e:
+            logger.error(f"Audit failed: {e}")
+
+    async def whatsapp_send(self, recipient: str, message: str, ticket_id: int = 0):
+        return await self.wa_service.send_custom_text(recipient, message)
+
+    async def process_request(self, raw_request_text: str, user_role: str, source_document_id: int, database_session: AsyncSession) -> dict:
+        return await self.process_text_input(raw_request_text, str(source_document_id), user_role, "WEB", database_session)
