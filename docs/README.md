@@ -2,59 +2,90 @@
 ## Folder Structure
 ```
 SME-Ops-Orchestrator/
-├── docs/                        # Documentation & Diagrams
-│   ├── README.md
-│   ├── CONTRIBUTING.md
-│   ├── architecture_diag.png    # System flow (Router, RAG, Tools)
-│   ├── api_spec.yaml            # OpenAPI/Swagger specs
-│   └── pii_governance.md        # How you handle PII masking/security
+├── .env                         # Environment variables (API Keys, etc.)
+├── .gitignore                   # Git exclusion rules
+├── main.py                      # FastAPI Entry point
+├── requirements.txt             # Python dependencies
 │
-├── backend/                     # FastAPI Backend (The Orchestrator)
-│   ├── app/
-│   │   ├── api/                 # API Route Handlers
-│   │   │   ├── auth.py          # Role-based login (RBAC)
-│   │   │   │── tickets.py       # Task/State management logic
-│   │   │   ├── chatbot.py       # RAG & Copilot endpoints
-│   │   │   └── inventory.py     # Google Sheets proxy
-│   │   │
-│   │   ├── core/                # The "Brain" (Orchestration logic)
-│   │   │   ├── orchestrator.py  # Main ReAct loop & Router
-│   │   │   ├── security.py      # PII masking & Permission checks
-│   │   │   └── config.py        # Env vars (Z.AI API Keys, etc.)
-│   │   │
-│   │   ├── services/            # Framework-independent business logic
-│   │   │   ├── parser.py        # OCR + GLM Master JSON Extraction
-│   │   │   ├── rag_service.py   # Vector DB (Chroma/Pinecone) logic
-│   │   │   ├── vector_db.py     # qdrantdb
-│   │   │   └── google_sheets.py # Google Sheets API integration
-│   │   │
-│   │   ├── models/              # Database & Pydantic Schemas
-│   │   │   ├── schemas.py       # Master Extraction JSON Schema
-│   │   │   └── database.py      # Logs & User Role relational DB
-│   │   │
-│   │   ├── tests/              # Database & Pydantic Schemas
-│   │   │
-│   │   └── utils/               # Helpers
-│   │       └── hashing.py       # Binary content hashing for deduplication
+├── app/                         # Backend Logic (The Orchestrator)
+│   ├── api/                     # API Route Handlers
+│   │   ├── auth.py              # Role-based login (RBAC)
+│   │   ├── customers.py         # Customer management
+│   │   ├── intake.py            # Document ingestion & extraction
+│   │   ├── inventory.py         # Google Sheets proxy / Inventory
+│   │   ├── orders.py            # Order processing
+│   │   ├── telegram.py          # Telegram bot integration
+│   │   ├── tickets.py           # Task/State management logic
+│   │   └── whatsapp.py          # WhatsApp webhook & messaging
 │   │
-│   ├── tests/                   # Unit & Integration tests
-│   ├── main.py                  # Entry point
-│   ├── requirements.txt
-│   └── .env.example
+│   ├── core/                    # The "Brain" (Orchestration logic)
+│   │   ├── config.py            # Settings & Env loader
+│   │   ├── orchestrator.py      # Main ReAct loop & Router
+│   │   └── security.py          # PII masking & Permission checks
+│   │
+│   ├── models/                  # Data Schemas
+│   │   └── schemas.py           # Pydantic models (Master JSON, etc.)
+│   │
+│   ├── services/                # Framework-independent business logic
+│   │   ├── gdrive_service.py    # Google Drive file management
+│   │   ├── glm_service.py       # GLM-4V Vision / Model interaction
+│   │   ├── google_sheets.py     # Google Sheets API integration
+│   │   ├── parser.py            # OCR + Document parsing logic
+│   │   ├── rag_service.py       # RAG Retrieval logic
+│   │   ├── tele_service.py      # Telegram business logic
+│   │   ├── ticket_service.py    # Ticket lifecycle & state logic
+│   │   ├── vector_db.py         # Qdrant client & Point management
+│   │   └── wa_service.py        # WhatsApp business logic
+│   │
+│   └── utils/                   # Helpers
+│       └── hashing.py           # Binary deduplication & content hashing
 │
-├── frontend/                    # Website (React/Next.js)
-│   ├── src/
-│   │   ├── components/          # Reusable UI (TaskCards, SourcePanel)
-│   │   ├── hooks/               # API call logic
-│   │   ├── pages/               # Dashboard, Inventory, Logs, Login
-│   │   └── context/             # Auth & Global State
-│   ├── public/                  # Assets & Icons
-│   └── package.json
+├── tests/                       # Unit & Integration tests
+│   ├── conftest.py              # Pytest configuration
+│   ├── api/                     # API endpoint tests
+│   ├── core/                    # Logic & Orchestrator tests
+│   ├── services/                # Service layer tests (Parser, etc.)
+│   │   └── test_data/           # Sample files (.pdf, .docx, .xlsx)
+│   └── utils/                   # Utility tests
 │
-└── vault/                       # (Ignored in Git) Local storage for raw files
+├── downloaded_media/            # Local storage for raw files (Ignored in Git)
+├── .pytest_cache/               # Pytest runtime cache
+│
+└── frontend/                    # Website (React/Next.js)
+    └── src/
+        ├── App.tsx
+        ├── index.css
+        ├── main.tsx
+        ├── types.ts
+        ├── components/          
+        │   ├── ChatBubble.tsx
+        │   ├── DashboardView.tsx
+        │   ├── DocumentsView.tsx
+        │   ├── InventoryView.tsx
+        │   ├── LandingPageView.tsx
+        │   └── TicketsView.tsx
+        └── lib/
+            ├── api.ts
+            └── utils.ts
+
 ```
 
 ## Video Pitching Deck Link
 ```
 https://drive.google.com/file/d/1gUF6r2zAcZV7aW8QY7EgWXRiVw8HZf3Q/view?usp=sharing
+```
+
+## Document Link
+```
+System Analysis Documentation (SAD)
+https://drive.google.com/file/d/1POyn49af8k5esOL-isNv-ZjBa26RWwI_/view?usp=sharing
+
+Product Requirement Documentation (PRD)
+https://drive.google.com/file/d/1S9RkSNlRmm6tlpsBDLIFq0IehCarunL2/view?usp=sharing
+
+Sample Testing Analysis Documentation (STAD)
+https://drive.google.com/file/d/180eOIT44jumFRSTAdWSP52mRneoPznSO/view?usp=sharing
+
+Pitching Deck Slide PortoDing
+https://drive.google.com/file/d/1sEj0vuVv6XmRbRWeA7Ob24emXAde6Jf1/view?usp=sharing
 ```
