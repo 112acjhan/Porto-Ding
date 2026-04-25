@@ -110,12 +110,25 @@ class VectorDBService:
 
 
     def search_vectors(self, query_dense: list, query_sparse_indices: list, query_sparse_values: list, client_id: str, user_role: str, top_k: int = 5):
-        role_filter = []
+        
+        must_filters = []
+        
+        if user_role not in ["STAFF", "MANAGER"]:
+            must_filters.append(
+                models.FieldCondition(
+                    key="client", 
+                    match=models.MatchValue(value=client_id)
+                )
+            )
+            
+        # Security Filter: Staff cannot see Manager-only PII documents
         if user_role == "STAFF":
-            role_filter = [models.FieldCondition(
-                key="authorized_roles", 
-                match=models.MatchValue(value="STAFF")
-            )]
+            must_filters.append(
+                models.FieldCondition(
+                    key="authorized_roles", 
+                    match=models.MatchValue(value="STAFF")
+                )
+            )
         
         # Hybrid Search using query point
         return self.client.query_points(
@@ -138,16 +151,8 @@ class VectorDBService:
                 ),
             ],
             
-            # Logical Filter: Only search data belonging to this specific client and role-based access
-            query_filter=models.Filter(
-            must=[
-                models.FieldCondition(
-                    key="client", 
-                    match=models.MatchValue(value=client_id)
-                    ),
-                *role_filter # Unpack the role filter
-                ]
-            ),
+            # Dynamic filters (if there are any)
+            query_filter=models.Filter(must=must_filters) if must_filters else None,
 
             # RRF (Reciprocal Rank Fusion): Merges the dense and sparse results
             query=models.FusionQuery(fusion=models.Fusion.RRF),

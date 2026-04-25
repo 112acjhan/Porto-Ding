@@ -45,6 +45,36 @@ class ExtractionResult(BaseModel):
     pii_detected: bool
     pii_types: List[str]
 
+class MasterMetadata(BaseModel):
+    unique_hash: str
+    timestamp: str
+    detected_language: str
+    confidence_score: float
+    source_type: str
+    source_url: str
+
+class MasterClassification(BaseModel):
+    intent_category: str
+    urgency_level: int
+    formal_summary: str
+
+class MasterEntities(BaseModel):
+    client_name: Optional[str] = None
+    items: List[dict] = []
+    location: Optional[str] = None
+    deadline: Optional[str] = None
+
+class MasterSecurity(BaseModel):
+    pii_detected: bool
+    pii_types: List[str] = []
+    requires_manager_approval: bool = False
+
+class MasterExtractionResult(BaseModel):
+    metadata: MasterMetadata
+    classification: MasterClassification
+    extracted_entities: MasterEntities
+    security_flags: MasterSecurity
+
 
 # ─── ENUMS ──────────────────────────────────────────────────────
 class MessageSource(str, Enum):
