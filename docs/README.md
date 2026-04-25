@@ -53,3 +53,8 @@ SME-Ops-Orchestrator/
 │
 └── vault/                       # (Ignored in Git) Local storage for raw files
 ```
+
+## Video Pitching Deck Link
+```
+https://drive.google.com/file/d/1gUF6r2zAcZV7aW8QY7EgWXRiVw8HZf3Q/view?usp=sharing
+```
